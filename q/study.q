@@ -15,7 +15,7 @@
 / Deflated Sharpe over every long-short strategy tried.
 / .
 / Entry point: .study.run[t;n;start] -> dictionary of tables
-/   t: date,mkt,sym,close,high,volume (any number of markets)
+/   t: date,mkt,sym,open,high,low,close,volume (any number of markets)
 
 \d .study
 
@@ -123,7 +123,7 @@ market:{[x;mk]
 
 / every market in t, then the cross-market post-processing of upstream main()
 run:{[t;n;start]
-  r:{[t;n;start;mk] market[.sig.build[select date,sym,close,high,volume from t where mkt=mk;n;start];mk]}[t;n;start] each distinct t`mkt;
+  r:{[t;n;start;mk] market[.sig.build[select date,sym,open,high,low,close,volume from t where mkt=mk;n;start];mk]}[t;n;start] each distinct t`mkt;
   out:(key r 0)!{[r;k] raze r@\:k}[r] each key r 0;
   ic:out`ic_table; ic:update q_bh:.st.bh p, hlz_t3:3<=abs nw_t from ic; out[`ic_table]:ic;
   cost:out`costs; ser:cost`ls_series;

@@ -15,7 +15,7 @@ hdb:absp first o`hdb; out:absp first o`out
 n:"J"$first o`univ; st:"D"$first o`start
 
 system "l ",hdb
-t:select date,mkt,sym,close,high,volume from daily
+t:select date,mkt,sym,open,high,low,close,volume from daily
 r:.study.run[t;n;st]
 
 system "P 0"                       / full float precision in the CSVs

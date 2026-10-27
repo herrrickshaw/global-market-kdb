@@ -39,7 +39,7 @@ def main() -> None:
         kx.q(f'system "l {ROOT}/q/{f}.q"')
 
     df = pd.read_csv(a.csv, parse_dates=["date"])
-    df = df.loc[df["close"] > 0, ["date", "mkt", "sym", "close", "high", "volume"]]
+    df = df.loc[df["close"] > 0, ["date", "mkt", "sym", "open", "high", "low", "close", "volume"]]
     df["volume"] = df["volume"].astype("float64")
     t = kx.q('{update `date$date from x}', kx.toq(df))      # mkt/sym arrive as symbols
     res = kx.q(".study.run", t, a.n, kx.q(f'"D"$"{a.start}"'))

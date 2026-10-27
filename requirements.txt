@@ -1,0 +1,6 @@
+pandas>=2.2
+numpy>=1.26
+duckdb>=1.1
+pytest>=8
+scipy>=1.11      # only for python/check_upstream.py (upstream imports it)
+# optional: pykx>=3   (licensed; for python/pykx_parity.py)

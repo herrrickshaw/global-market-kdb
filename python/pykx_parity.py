@@ -38,7 +38,7 @@ def main() -> None:
     df = pd.read_csv(a.csv, parse_dates=["date"])
     df = df.loc[df["close"] > 0, ["date", "sym", "close", "high", "volume"]]
     df["volume"] = df["volume"].astype("float64")
-    t = kx.q('{update `date$date, `$sym from x}', kx.toq(df.assign(sym=df["sym"].astype(str))))
+    t = kx.q('{update `date$date from x}', kx.toq(df))   # sym arrives as symbol, date as timestamp
     s = kx.q(".sig.build", t, a.n, kx.q(f'"D"$"{a.start}"'))
     ic_q = kx.q(".sig.ic", s).pd()
     ic_q["date"] = pd.to_datetime(ic_q["date"])

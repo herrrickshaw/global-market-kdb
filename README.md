@@ -20,7 +20,11 @@ The warehouse they read is described in
 |---|---|
 | `python/reference.py` (vendored, float64) vs upstream `signal_research.py`, committed synthetic sample | identical per-date IC for 4 of 5 signals; `illiq` differs by at most 2.9e-4 (upstream casts panels to float32) |
 | Same check on a real 150-name US slice, 2018–2020, from the warehouse | identical per-date IC for all 5 signals (the warehouse already stores float32) |
-| **q (`q/signals.q`) vs `python/reference.py`** | **not run yet**: pending a KDB-X licence on the dev machine. `python/parity.py` is the test, and `pytest` skips it until `q` is found. |
+| **q (`q/signals.q`) vs `python/reference.py`**, synthetic sample, via HDB + `q/run.q` | **PASS**: 105 formation dates × 5 signals, same valid-name counts and null pattern, max per-date \|ΔIC\| = 0 (tolerance 1e-10) |
+| Same, real 150-name US slice, 2018–2020 | **PASS**, max per-date \|ΔIC\| = 0 |
+| Same, synthetic sample, in-process via PyKX (`python/pykx_parity.py`) | **PASS**, max per-date \|ΔIC\| = 0 |
+
+Run on KDB-X 5.0 Community (2026.10.23), PyKX 4.2.0, macOS arm64. `pytest -q`: 5 passed.
 
 ## Layout
 
@@ -64,6 +68,12 @@ wrong. `ewm(adjust=False)` decays the old weight across null inputs.
 `0|0n` is `0` and `0n<x` is true, so `clip(lower=0)` and the null guards
 are explicit. `tests/test_parity.py` pins the EWM recurrence against pandas.
 
+q details that bit during the port:
+
+- A line containing only `/` opens a block comment that runs until a line containing only `\`.
+- Names inside q-sql column expressions are looked up in the root namespace at run time, not in the namespace the function was defined in. So `.sig.build` qualifies its helpers (`.sig.ewm`, `.sig.clean`, …).
+- KDB-X reserves the `-n` command-line flag, so the universe size is passed as `-univ`.
+
 ## Running it
 
 KDB-X Community Edition is free for personal and commercial use within KX's
@@ -82,20 +92,22 @@ q directly:
 
 ```bash
 q q/load.q -csv data/sample/ohlcv.csv -hdb db
-q q/run.q -hdb db -mkt SYN -n 100 -start 2019.01.01 -out out/ic_q.csv
+q q/run.q -hdb db -mkt SYN -univ 100 -start 2019.01.01 -out out/ic_q.csv
 ```
 
-Through PyKX (`pip install pykx`; it needs the same licence, because unlicensed PyKX cannot execute q):
+The KDB-X installer puts `q` in `~/.kx/bin` and adds it to your shell's PATH. Otherwise, set `Q=~/.kx/bin/q`.
+
+Through PyKX (`pip install pykx`). It needs the same licence, because unlicensed PyKX cannot execute q. Point it at the licence with `QLIC`, or it stops at an interactive licence prompt:
 
 ```bash
-.venv/bin/python python/pykx_parity.py
+QLIC=~/.kx .venv/bin/python python/pykx_parity.py
 ```
 
 On real data, if you have the warehouse locally:
 
 ```bash
 .venv/bin/python python/extract_sample.py --mkt US --names 150 --from 2018-01-01 --to 2020-12-31
-.venv/bin/python python/parity.py --csv data/local/US.csv --n 100
+.venv/bin/python python/parity.py --csv data/local/US.csv --n 100 --work out/us
 ```
 
 ## Data

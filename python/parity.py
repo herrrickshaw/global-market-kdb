@@ -39,14 +39,14 @@ def run_q(q: str, csv: Path, mkt: str, n: int, start: str, work: Path) -> pd.Dat
     hdb, out = work / "db", work / "ic_q.csv"
     shutil.rmtree(hdb, ignore_errors=True)
     for args in (["q/load.q", "-csv", str(csv), "-hdb", str(hdb)],
-                 ["q/run.q", "-hdb", str(hdb), "-mkt", mkt, "-n", str(n),
+                 ["q/run.q", "-hdb", str(hdb), "-mkt", mkt, "-univ", str(n),
                   "-start", start.replace("-", "."), "-out", str(out)]):
         p = subprocess.run([q, *args, "-q"], cwd=ROOT, capture_output=True, text=True)
         sys.stdout.write(p.stdout)
         if p.returncode:
             sys.exit(f"q {args[0]} failed ({p.returncode}):\n{p.stderr}")
     df = pd.read_csv(out)
-    df["date"] = pd.to_datetime(df["date"], format="%Y.%m.%d")
+    df["date"] = pd.to_datetime(df["date"].str.replace(".", "-", regex=False))
     return df
 
 
@@ -90,8 +90,8 @@ def main() -> None:
 
     L = math.ceil(ref.H / 5)
     sq, sp = ref.summary(ic_q, L), ref.summary(ic_py, L)
-    table = table.merge(sp[["signal", "mean_ic", "nw_t"]], on="signal")
-    table["mean_ic_q"] = sq["mean_ic"].values
+    table = (table.merge(sp[["signal", "mean_ic", "nw_t"]], on="signal")
+                  .merge(sq[["signal", "mean_ic", "nw_t"]], on="signal", suffixes=("_py", "_q")))
     print(f"\nparity on {csv.name}: n={a.n}, start={a.start}, tol={a.tol:g}")
     print(table.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
     print("PASS" if ok else "FAIL")

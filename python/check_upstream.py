@@ -38,9 +38,12 @@ def main() -> None:
 
     sr.UNIVERSE_N["SYN"] = a.n
     sr.START = a.start
-    sr.HORIZONS = (ref.H,)
-    p = {k: v.astype("float32") for k, v in ref.load_panels(a.csv).items()}
-    S_up, F_up, _, _ = sr.build_signals(p, "SYN")
+    p = ref.load_panels(a.csv)
+    raw = pd.read_csv(a.csv, parse_dates=["date"])
+    p["Open"] = raw[raw["close"] > 0].pivot_table(index="date", columns="sym", values="open",
+                                                  aggfunc="last").reindex_like(p["Close"])
+    p = {k: v.astype("float32") for k, v in p.items()}
+    S_up, F_up = sr.build_signals(p, "SYN")[:2]     # later return values vary across upstream versions
 
     ours = ref.run(a.csv, a.n, a.start)
     worst = 0.0

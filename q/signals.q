@@ -3,7 +3,7 @@
 / newey_west_t in herrrickshaw/global-market-scanners (see python/reference.py
 / for the line-by-line Python counterpart). Every window, min-periods rule and
 / null convention follows pandas, so the two agree to float rounding.
-/
+/ .
 / Entry points:
 /   .sig.build[t;n;start]  t: table date,sym,close,high,volume (one market)
 /                          n: universe size for the liquidity gate
@@ -70,16 +70,16 @@ build:{[t;n;start]
   d:asc distinct t`date; s:asc distinct t`sym;
   g:([] sym:raze (count d)#/:s; date:raze (count s)#enlist d);
   g:g lj `sym`date xkey select sym,date,close,high,volume from t;
-  g:update close:ffill[3] close by sym from g;
-  g:update volume:0f^volume, r1:pct close by sym from g;
+  g:update close:.sig.ffill[3] close by sym from g;
+  g:update volume:0f^volume, r1:.sig.pct close by sym from g;
   g:update bad:`float$(not null r1)&(r1<-0.5)|r1>1, dv:close*volume from g;
-  g:update rsi_os:clean[bad;30] neg rsi r1, hi52:clean[bad;253] close%rmax[252;200] high, rev5:clean[bad;6] neg -1+close%5 xprev close by sym from g;
-  g:update golden:clean[bad;200] -1+ewm[2%51;0;close]%ewm[2%201;0;close], illiq:clean[bad;64] rmean[63;50] abs[r1]%?[dv=0;0n;dv] by sym from g;
-  g:update fwd:?[0<-1 xprev reverse (H+1) mmax reverse bad; 0n; -1+(neg[H+1] xprev close)%-1 xprev close], mdv:rmed[63;40;dv], hist:252 msum not null close by sym from g;
+  g:update rsi_os:.sig.clean[bad;30] neg .sig.rsi r1, hi52:.sig.clean[bad;253] close%.sig.rmax[252;200] high, rev5:.sig.clean[bad;6] neg -1+close%5 xprev close by sym from g;
+  g:update golden:.sig.clean[bad;200] -1+.sig.ewm[2%51;0;close]%.sig.ewm[2%201;0;close], illiq:.sig.clean[bad;64] .sig.rmean[63;50] abs[r1]%?[dv=0;0n;dv] by sym from g;
+  g:update fwd:?[0<-1 xprev reverse (.sig.H+1) mmax reverse bad; 0n; -1+(neg[.sig.H+1] xprev close)%-1 xprev close], mdv:.sig.rmed[63;40;dv], hist:252 msum not null close by sym from g;
   fd:weekends d; fd:fd where fd>=start;
   x:`date`sym xasc select from g where date in fd;
   / trailing liquidity gate: top n by 63d median dollar volume, >= 240 days of history
-  x:update rk:arank neg mdv by date from x;
+  x:update rk:.sig.arank neg mdv by date from x;
   x:update ok:(not null rk)&(rk<=n)&hist>=240 from x;
   x:update rsi_os:?[ok;rsi_os;0n], hi52:?[ok;hi52;0n], rev5:?[ok;rev5;0n], golden:?[ok;golden;0n], illiq:?[ok;illiq;0n], fwd:?[ok;fwd;0n] from x;
   select date,sym,rsi_os,hi52,rev5,golden,illiq,fwd from x}

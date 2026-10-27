@@ -55,10 +55,15 @@ def find_q() -> str | None:
     return None
 
 
-def run_q(q: str, csv: Path, n: int, start: str, work: Path) -> dict[str, pd.DataFrame]:
+def run_q(q: str, csv: Path | None, n: int, start: str, work: Path,
+          pq: dict | None = None) -> dict[str, pd.DataFrame]:
+    """Load (CSV via q/load.q, or the Parquet warehouse via q/pqload.q), then run the study."""
     hdb, out = work / "db", work / "q"
     shutil.rmtree(hdb, ignore_errors=True)
-    for args in (["q/load.q", "-csv", str(csv), "-hdb", str(hdb)],
+    load = (["q/load.q", "-csv", str(csv), "-hdb", str(hdb)] if pq is None else
+            ["q/pqload.q", "-root", pq["root"], "-mkts", *pq["mkts"], "-from", pq["from"].replace("-", "."),
+             "-to", pq["to"].replace("-", "."), "-names", str(pq["names"]), "-hdb", str(hdb)])
+    for args in (load,
                  ["q/run.q", "-hdb", str(hdb), "-univ", str(n),
                   "-start", start.replace("-", "."), "-out", str(out)]):
         p = subprocess.run([q, *args, "-q"], cwd=ROOT, capture_output=True, text=True)
@@ -131,19 +136,35 @@ def main() -> None:
     ap.add_argument("--atol", type=float, default=1e-10)
     ap.add_argument("--rtol", type=float, default=1e-8)
     ap.add_argument("--work", default=str(ROOT / "out"))
+    ap.add_argument("--parquet", metavar="ROOT", help="read the warehouse directly (q: pq module; "
+                    "Python: DuckDB) instead of --csv")
+    ap.add_argument("--mkts", nargs="+", default=["US"])
+    ap.add_argument("--from", dest="d0", default="2016-06-01")
+    ap.add_argument("--to", dest="d1", default="2022-12-31")
+    ap.add_argument("--names", type=int, default=200)
     a = ap.parse_args()
 
     q = find_q()
     if q is None:
         sys.exit("q not found: install KDB-X (see README) or set Q=/path/to/q")
-    csv, work = Path(a.csv).resolve(), Path(a.work).resolve()
+    work = Path(a.work).resolve()
     work.mkdir(parents=True, exist_ok=True)
-
-    res_q = run_q(q, csv, a.n, a.start, work)
-    res_py = study_py.run(csv, a.n, a.start)
+    if a.parquet:
+        import extract_sample
+        root = str(Path(a.parquet).expanduser())
+        pq = {"root": root, "mkts": a.mkts, "from": a.d0, "to": a.d1, "names": a.names}
+        res_q = run_q(q, None, a.n, a.start, work, pq)
+        src = pd.concat([extract_sample.query(root, m, a.names, a.d0, a.d1) for m in a.mkts],
+                        ignore_index=True)
+        label = f"parquet {root} {' '.join(a.mkts)} {a.d0}..{a.d1}, top {a.names}"
+    else:
+        csv = Path(a.csv).resolve()
+        res_q = run_q(q, csv, a.n, a.start, work)
+        src, label = csv, csv.name
+    res_py = study_py.run(src, a.n, a.start)
     rows = [compare(k, res_q.get(k), res_py.get(k), a.atol, a.rtol) for k in KEYS]
     table = pd.DataFrame(rows)
-    print(f"\nparity on {csv.name}: n={a.n}, start={a.start}, atol={a.atol:g}, rtol={a.rtol:g}")
+    print(f"\nparity on {label}: n={a.n}, start={a.start}, atol={a.atol:g}, rtol={a.rtol:g}")
     print(table.to_string(index=False, float_format=lambda v: f"{v:.2e}"))
     ok = bool(table["pass"].all())
     for (tbl, sig), cols in EXEMPT.items():

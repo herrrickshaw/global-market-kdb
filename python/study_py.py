@@ -29,8 +29,10 @@ import signal_research as sr  # noqa: E402
 import signal_validation as sv  # noqa: E402
 
 
-def load_panels(csv: str | Path) -> dict[str, dict[str, pd.DataFrame]]:
-    df = pd.read_csv(csv, parse_dates=["date"])
+def load_panels(src) -> dict[str, dict[str, pd.DataFrame]]:
+    """Per-market Close/High/Volume panels from an interchange CSV path or DataFrame."""
+    df = src.copy() if isinstance(src, pd.DataFrame) else pd.read_csv(src, parse_dates=["date"])
+    df["date"] = pd.to_datetime(df["date"])
     df = df[df["close"] > 0]
     out = {}
     for mkt, g in df.groupby("mkt"):
@@ -40,8 +42,8 @@ def load_panels(csv: str | Path) -> dict[str, dict[str, pd.DataFrame]]:
     return out
 
 
-def run(csv, n: int, start: str) -> dict[str, pd.DataFrame]:
-    panels = load_panels(csv)
+def run(src, n: int, start: str) -> dict[str, pd.DataFrame]:
+    panels = load_panels(src)
     sr.START = start
     sr.load_market = lambda root, mkt: {k: v.copy() for k, v in panels[mkt].items()}
     series = []

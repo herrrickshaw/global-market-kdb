@@ -26,6 +26,28 @@ ROOT = Path(__file__).resolve().parents[1]
 ETF_RE = r"BEES|ETF|LIQUID|GILT|NIFTY|SENSEX"    # upstream India ETF exclusion
 
 
+def query(root: str, mkt: str, names: int, start: str, end: str):
+    """The extraction as a DataFrame (prices as exact float64 copies of the float32 source)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+        raise ValueError("dates must be YYYY-MM-DD")
+    glob = f"{root}/{mkt}/*.parquet"
+    etf = f"AND NOT regexp_matches(upper(Symbol), '{ETF_RE}')" if mkt == "IN" else ""
+    return duckdb.connect().sql(f"""
+        WITH w AS (
+          SELECT * FROM '{glob}'
+          WHERE Date >= DATE '{start}' AND Date <= DATE '{end}' AND Close > 0 {etf}),
+        keep AS (
+          SELECT Symbol FROM w WHERE Volume > 0 GROUP BY 1
+          ORDER BY median(Close::DOUBLE * Volume) DESC LIMIT {int(names)})
+        SELECT CAST(Date AS DATE) AS date, '{mkt}' AS mkt, Symbol AS sym,
+               Open::DOUBLE AS open, High::DOUBLE AS high, Low::DOUBLE AS low,
+               Close::DOUBLE AS close, Volume::DOUBLE AS volume
+        FROM w JOIN keep USING (Symbol)
+        QUALIFY row_number() OVER (PARTITION BY Symbol, Date ORDER BY Date) = 1
+        ORDER BY date, sym
+    """).df()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--root", default=str(Path.home() / ".cache/market-warehouse/ohlcv"))
@@ -35,29 +57,12 @@ def main() -> None:
     ap.add_argument("--to", dest="end", default="2020-12-31")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", a.end):
-        ap.error("dates must be YYYY-MM-DD")
 
-    glob = f"{a.root}/{a.mkt}/*.parquet"
     out = Path(a.out or ROOT / "data" / "local" / f"{a.mkt}.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
-    etf = f"AND NOT regexp_matches(upper(Symbol), '{ETF_RE}')" if a.mkt == "IN" else ""
-    con = duckdb.connect()
-    con.sql(f"""
-        WITH w AS (
-          SELECT * FROM '{glob}'
-          WHERE Date >= DATE '{a.start}' AND Date <= DATE '{a.end}' AND Close > 0 {etf}),
-        keep AS (
-          SELECT Symbol FROM w WHERE Volume > 0 GROUP BY 1
-          ORDER BY median(Close * Volume) DESC LIMIT {int(a.names)})
-        SELECT strftime(Date, '%Y-%m-%d') AS date, '{a.mkt}' AS mkt, Symbol AS sym,
-               Open AS open, High AS high, Low AS low, Close AS close, Volume AS volume
-        FROM w JOIN keep USING (Symbol)
-        QUALIFY row_number() OVER (PARTITION BY Symbol, Date ORDER BY Date) = 1
-        ORDER BY date, sym
-    """).write_csv(str(out))
-    n = con.sql(f"SELECT count(*), count(DISTINCT sym) FROM read_csv('{out}')").fetchall()[0]
-    print(f"wrote {out}: {n[0]:,} rows, {n[1]} names")
+    df = query(a.root, a.mkt, a.names, a.start, a.end)
+    df.to_csv(out, index=False, date_format="%Y-%m-%d")   # repr round-trips each double exactly
+    print(f"wrote {out}: {len(df):,} rows, {df['sym'].nunique()} names")
 
 
 if __name__ == "__main__":

@@ -26,9 +26,10 @@ The q study (`q/`) is checked against upstream's own `study_market()`, run uncha
 |---|---|---|---|---|---|---|
 | Synthetic sample: 120 names, 2018–2022, 1 market | 10,032 rows, max diff 0 | 48 rows, 1.4e-13 | 11 rows, 4.3e-14 | 33 rows, 2.3e-13 | 5 folds, 1.4e-17 | 11 rows, 4.4e-16 |
 | Real slice: US + India, 200 names each, 2016–2022 | 27,552 rows, max diff 0 | 96 rows, 1.4e-12 | 22 rows, 1.9e-13 | 66 rows, 2.3e-13 | 10 folds, 2.8e-17 | 22 rows, 8.9e-16 |
+| Same US + India slice, read from the warehouse Parquet by q (`pq`) and by DuckDB | 27,552 rows, max diff 0 | 96 rows, 1.4e-12 | 22 rows, 1.9e-13 | 66 rows, 2.8e-13 | 10 folds, 2.8e-17 | 22 rows, 8.9e-16 |
 | Synthetic sample through PyKX (in-process) | identical to the first row | | | | | |
 
-All rows **PASS**. They were run on KDB-X 5.0 Community (2026.10.23) with PyKX 4.2.0 on macOS arm64. `pytest -q` reports 6 passed.
+All rows **PASS**. They were run on KDB-X 5.0 Community (2026.10.23) with PyKX 4.2.0 on macOS arm64. `pytest -q` reports 10 passed.
 
 **One documented exemption.** `lowvol` is −(63-day volatility), and the same 63-day volatility is one of the two neutralisation exposures. So rank(lowvol) is a linear function of rank(vol), and the neutralised residual is floating-point round-off: the median |residual| is 2e-16, against 0.24 for `rev5`. Upstream's `neutral_ic`/`neutral_t` for `lowvol` are therefore the IC of noise, and no two correct implementations will agree on them. Parity compares only the null pattern for those two cells. This is a finding about the upstream study, not a gap in the port.
 
@@ -75,6 +76,41 @@ The statistics are implemented in q from scratch (`q/stats.q`):
 
 `tests/test_parity.py` checks the special functions against scipy to a relative 1e-12.
 
+## Beyond upstream
+
+These additions have no upstream counterpart, so they're checked against independent computations instead of an oracle (`tests/test_extras.py`).
+
+| Addition | q | Check |
+|---|---|---|
+| Read the Parquet warehouse in q, with no Python or CSV step | `q/pqload.q` (KDB-X `pq` module) | the full study on a `pq`-loaded HDB matches upstream on DuckDB-read data (parity row above) |
+| Point-in-time fundamentals: annual net income and shares, usable 90 days after FY end, joined with `aj` → earnings yield and its IC | `.ext.fund`, `.ext.ep`, `.ext.pitic` | `aj` equals pandas `merge_asof(direction="backward")`; every joined record has availability date ≤ formation date |
+| Corporate actions: back-adjust bars for splits/bonuses, then rerun the study on adjusted vs raw bars | `.ext.cafile`, `.ext.adjust`, `.ext.caeffect` | a toy split adjusts to a flat series; on the India slice, 103 events cut price-jump guard hits from 41 to 5 |
+| Spread-based costs: Corwin-Schultz (2012) high-low spread per name and date; each rebalance pays half the spread on every name traded | `.sig.csd`, `.ext.tca` | the estimator equals a NumPy implementation to 1e-12 |
+| Overnight vs intraday: each forward return split into close→open and open→close log legs, IC of every signal on each leg | `.sig.legs`, `.ext.legsic` | the legs sum to the forward log return (max deviation 4e-15 on real data) |
+
+What the extras showed on the real slice (US + India, 200 names each, formation dates 2017–2022). This is exploratory, from one sample of one universe, with no multiple-testing correction, and not investment advice:
+
+- **Reversal is an overnight effect** in both markets. The 5-day reversal IC's Newey-West t is 3.97 on the overnight leg vs 0.30 intraday in India, and 3.81 vs −1.00 in the US. For context, Lou, Polk & Skouras (2019, *JFE*, "A tug of war: overnight versus intraday expected returns") document that different cross-sectional strategies earn their returns in different parts of the day.
+- **India low-volatility flips by leg:** t = −9.1 overnight vs +4.8 intraday.
+- **Spread costs:** the Corwin-Schultz median is 73 bps for the India slice and 49 bps for the US slice. The estimator is known to overstate spreads for liquid large caps, so its net returns are a pessimistic bound, not a forecast.
+- **Earnings yield** (India, 90-day lag) has no significant IC at any horizon on this slice: \|t\| < 0.4, with 55% coverage.
+
+## Benchmark
+
+`bench/` times five of the study's own operations on the full US warehouse (16.7M rows) in q, DuckDB and Polars, and checks that the engines agree on every answer. Results and caveats: [`bench/RESULTS.md`](bench/RESULTS.md).
+
+Minimum of 5 runs on an 8 GB M1. q runs single-threaded unless the work is split with `peach`; DuckDB and Polars are shown on 4 threads:
+
+| operation | q | DuckDB | Polars |
+|---|---|---|---|
+| load US Parquet (16.7M rows) | 1,171 ms (`peach`) | 324 ms | 288 ms |
+| median dollar volume by symbol, year | 746 ms (`peach`) | 237 ms | 975 ms |
+| 5d return + 63-row mean \|r\| by symbol | 841 ms | 3,022 ms | 552 ms |
+| rank by date | 1,857 ms (date-sorted) | 5,224 ms | 714 ms |
+| as-of join, India bars to fundamentals | 67 ms | 538 ms | 70 ms |
+
+q leads on the as-of join, tied with Polars. It's well ahead of DuckDB on the time-series and cross-sectional steps, and level with single-threaded Polars on the windows (837 ms). DuckDB is fastest at the grouped median, and DuckDB and Polars both load Parquet 3–4× faster than `pq`. The machine was swapping, so treat differences under about 2× as noise.
+
 ## Layout
 
 ```
@@ -84,6 +120,10 @@ q/signals.q    .sig.build: the gated signal panel (12 signals, 4 horizons, expos
 q/stats.q      .st: Newey-West, BH-FDR, t / normal distributions, Deflated Sharpe, OLS
 q/study.q      .study.run: the full study, every market, cross-market post-processing
 q/run.q        HDB -> one CSV per output table
+q/pqload.q     Parquet warehouse -> HDB, natively with the KDB-X pq module
+q/extras.q     .ext: spread costs, point-in-time fundamentals, corporate actions, overnight/intraday
+q/ext_run.q    HDB (+ fundamentals, corporate actions) -> the extras' tables
+bench/         q vs DuckDB vs Polars (bench.q, bench_py.py, run.py, RESULTS.md)
 python/upstream/          vendored upstream oracle (verbatim, commit cb70eca)
 python/study_py.py        runs the oracle on the interchange CSV
 python/parity.py          q vs oracle, all six tables
@@ -91,6 +131,7 @@ python/pykx_parity.py     the same check with q embedded in Python through PyKX
 python/make_sample.py     generates data/sample/ohlcv.csv (seeded, synthetic)
 python/extract_sample.py  real slice from the Parquet warehouse -> data/local/ (gitignored)
 tests/test_parity.py      pytest: EWM recurrence, special functions, full parity
+tests/test_extras.py      pytest: spread estimator, leg identity, aj vs merge_asof, split adjustment
 ```
 
 ## Porting notes
@@ -106,7 +147,8 @@ q and KDB-X details that bit:
 
 - A line containing only `/` opens a block comment that runs until a line containing only `\`.
 - Names inside q-sql column expressions resolve in the root namespace at run time, so `.sig.build` calls its helpers fully qualified.
-- `all` is a reserved word, so it can't be a function name; KDB-X also reserves the `-n` command-line flag.
+- Built-in names can't be reused for globals or locals: `all`, `read1`, `cov`, `in`, `from` and `to` all failed with `'assign`. KDB-X also reserves the `-n` command-line flag.
+- A completeness test on a trailing window has to be shifted together with the window sum, not after it. The leg-identity test caught this one.
 - In KDB-X, `system "cd"` returns a string rather than a list of strings.
 
 ## Running it
@@ -132,7 +174,17 @@ Through PyKX. It needs the same licence, because unlicensed PyKX cannot execute 
 QLIC=~/.kx .venv/bin/python python/pykx_parity.py
 ```
 
-On real data, if you have the warehouse locally:
+Straight from the Parquet warehouse, with the extras:
+
+```bash
+q q/pqload.q -root ~/.cache/market-warehouse/ohlcv -mkts US IN -from 2016.06.01 -to 2022.12.31 -names 200 -hdb db
+q q/run.q -hdb db -univ 150 -start 2017.07.01 -out out/q
+q q/ext_run.q -hdb db -univ 150 -start 2017.07.01 -out out/ext -fund ~/.cache/market-warehouse/fundamentals_history/IN_screener_only_backup.parquet -ca ~/.cache/market-warehouse/adjustment_factors.parquet
+.venv/bin/python python/parity.py --parquet ~/.cache/market-warehouse/ohlcv --mkts US IN --n 150 --start 2017-07-01
+.venv/bin/python bench/run.py
+```
+
+From a CSV extract instead:
 
 ```bash
 .venv/bin/python python/extract_sample.py --mkt US --names 200 --from 2016-06-01 --to 2022-12-31 --out data/local/US.csv

@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "sample" / "ohlcv.csv"
 SEED = 20261027
 N_NAMES = 120
-DATES = pd.bdate_range("2018-01-01", "2020-12-31")
+DATES = pd.bdate_range("2018-01-01", "2022-12-30")
 
 
 def main() -> None:

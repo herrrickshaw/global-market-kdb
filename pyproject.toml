@@ -25,4 +25,4 @@ testpaths = ["tests"]
 
 [tool.ruff.lint.per-file-ignores]
 # bench/ needs the 16.7M-row US warehouse and Polars, so it is left as-is (not verifiable in CI).
-"bench/*" = ["E501", "E702"]
+"bench/*" = ["E501", "E702", "E401", "I001"]

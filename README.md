@@ -15,8 +15,24 @@ They are vendored verbatim in [`python/upstream/`](python/upstream/) as the
 oracle. The warehouse they read is described in
 [`herrrickshaw/global-market-data`](https://github.com/herrrickshaw/global-market-data).
 
-> Research code, not investment advice. The committed sample is synthetic, and
-> no number printed from it says anything about any market.
+> Status: research-only, maintained. Research code, not investment advice. The committed sample is
+> synthetic, and no number printed from it says anything about any market.
+
+## What it does
+- Builds a date-partitioned kdb+ HDB of daily OHLCV bars from a CSV or the Parquet warehouse.
+- Computes twelve cross-sectional signals at four forward horizons, behind a trailing liquidity gate.
+- Runs the full study in q: rank IC with Newey-West t, BH-FDR, Fama-MacBeth, cost-adjusted quintile spreads, Deflated Sharpe, purged walk-forward.
+- Checks all six output tables against the vendored Python original (`python/upstream/`) to 1e-10 + 1e-8 relative.
+- Adds extras with no upstream counterpart: point-in-time fundamentals, corporate actions, spread costs, overnight vs intraday.
+
+## Quick start
+Needs KDB-X Community Edition (`q`) on PATH or `Q=/path/to/q`; see [Running it](#running-it).
+
+```bash
+git clone https://github.com/herrrickshaw/global-market-kdb && cd global-market-kdb
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python python/parity.py      # synthetic sample, q vs upstream -> PASS
+```
 
 ## Parity status
 
@@ -29,7 +45,7 @@ The q study (`q/`) is checked against upstream's own `study_market()`, run uncha
 | Same US + India slice, read from the warehouse Parquet by q (`pq`) and by DuckDB | 27,552 rows, max diff 0 | 96 rows, 1.4e-12 | 22 rows, 1.9e-13 | 66 rows, 2.8e-13 | 10 folds, 2.8e-17 | 22 rows, 8.9e-16 |
 | Synthetic sample through PyKX (in-process) | identical to the first row | | | | | |
 
-All rows **PASS**. They were run on KDB-X 5.0 Community (2026.10.23) with PyKX 4.2.0 on macOS arm64. `pytest -q` reports 10 passed.
+All rows **PASS**. They were run on KDB-X 5.0 Community (2026.10.23) with PyKX 4.2.0 on macOS arm64. `pytest -q` reports 22 passed (the 10 q-dependent and parity tests skip when `q` is absent).
 
 **One documented exemption.** `lowvol` is −(63-day volatility), and the same 63-day volatility is one of the two neutralisation exposures. So rank(lowvol) is a linear function of rank(vol), and the neutralised residual is floating-point round-off: the median |residual| is 2e-16, against 0.24 for `rev5`. Upstream's `neutral_ic`/`neutral_t` for `lowvol` are therefore the IC of noise, and no two correct implementations will agree on them. Parity compares only the null pattern for those two cells. This is a finding about the upstream study, not a gap in the port.
 
@@ -111,7 +127,9 @@ Minimum of 5 runs on an 8 GB M1. q runs single-threaded unless the work is split
 
 q leads on the as-of join, tied with Polars. It's well ahead of DuckDB on the time-series and cross-sectional steps, and level with single-threaded Polars on the windows (837 ms). DuckDB is fastest at the grouped median, and DuckDB and Polars both load Parquet 3–4× faster than `pq`. The machine was swapping, so treat differences under about 2× as noise.
 
-## Layout
+## How it works and repository layout
+
+Pipeline: CSV/Parquet -> `load.q`/`pqload.q` (HDB) -> `run.q` (`.sig.build` panel -> `.study.run` with `.st` statistics) -> one CSV per table -> `python/parity.py` compares with the oracle run by `python/study_py.py`.
 
 ```
 q/schema.q     daily bar table (sym, mkt, OHLCV), partitioned by date
@@ -132,6 +150,9 @@ python/make_sample.py     generates data/sample/ohlcv.csv (seeded, synthetic)
 python/extract_sample.py  real slice from the Parquet warehouse -> data/local/ (gitignored)
 tests/test_parity.py      pytest: EWM recurrence, special functions, full parity
 tests/test_extras.py      pytest: spread estimator, leg identity, aj vs merge_asof, split adjustment
+tests/test_harness.py     pytest: parity.compare/tolerances, sample regeneration, extractor (no q needed)
+pyproject.toml            ruff + pytest config (python/upstream is excluded: vendored verbatim)
+.github/workflows/ci.yml  ruff + pytest on push/PR (q-dependent tests skip on the runner)
 ```
 
 ## Porting notes
@@ -201,6 +222,23 @@ Real warehouse prices come from market-data vendors and are not redistributed he
 - the yearly top-N pre-filter is replaced by picking the `--names` most liquid symbols for the extracted window.
 
 The per-date liquidity gate inside the study is identical to upstream.
+
+## Testing
+
+```bash
+.venv/bin/python -m pytest -q    # 22 tests; the q-dependent ones skip without q
+.venv/bin/ruff check .
+```
+
+## Limitations and known issues
+- The q-vs-upstream parity tests need a KDB-X licence and so do not run in CI.
+- `lowvol` neutralised IC/t are compared by null pattern only (documented exemption above).
+- The upstream oracle's `costs` table varies by about 1e-13 between runs, well inside the parity tolerance.
+- Benchmark numbers come from one 8 GB laptop that was swapping; treat differences under about 2x as noise.
+- Real-warehouse results cannot be reproduced from this repository; the Parquet warehouse is not redistributed.
+
+## Related repositories
+[`global-market-scanners`](https://github.com/herrrickshaw/global-market-scanners) (upstream study) and [`global-market-data`](https://github.com/herrrickshaw/global-market-data) (the warehouse).
 
 ## Licence
 

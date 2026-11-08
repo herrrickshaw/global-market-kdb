@@ -1,5 +1,7 @@
 # global-market-kdb
 
+> **Walkthrough:** [Video on YouTube](https://www.youtube.com/watch?v=MxGnm1uPWVY) (run on the tracked synthetic sample)
+
 A kdb+/q implementation of my cross-sectional equity signal study. It covers:
 
 - the data layer: a date-partitioned HDB of daily bars,

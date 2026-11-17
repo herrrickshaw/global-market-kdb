@@ -29,7 +29,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,17 +54,26 @@ def find_q() -> str | None:
     return None
 
 
+def _q_commands(csv: Path | None, n: int, start: str, hdb: Path, out: Path,
+                pq: dict | None) -> list[list[str]]:
+    """Argument lists for the two q invocations: load the HDB, then run the study."""
+    if pq is None:
+        load = ["q/load.q", "-csv", str(csv), "-hdb", str(hdb)]
+    else:
+        load = ["q/pqload.q", "-root", pq["root"], "-mkts", *pq["mkts"],
+                "-from", pq["from"].replace("-", "."), "-to", pq["to"].replace("-", "."),
+                "-names", str(pq["names"]), "-hdb", str(hdb)]
+    run = ["q/run.q", "-hdb", str(hdb), "-univ", str(n),
+           "-start", start.replace("-", "."), "-out", str(out)]
+    return [load, run]
+
+
 def run_q(q: str, csv: Path | None, n: int, start: str, work: Path,
           pq: dict | None = None) -> dict[str, pd.DataFrame]:
     """Load (CSV via q/load.q, or the Parquet warehouse via q/pqload.q), then run the study."""
     hdb, out = work / "db", work / "q"
     shutil.rmtree(hdb, ignore_errors=True)
-    load = (["q/load.q", "-csv", str(csv), "-hdb", str(hdb)] if pq is None else
-            ["q/pqload.q", "-root", pq["root"], "-mkts", *pq["mkts"], "-from", pq["from"].replace("-", "."),
-             "-to", pq["to"].replace("-", "."), "-names", str(pq["names"]), "-hdb", str(hdb)])
-    for args in (load,
-                 ["q/run.q", "-hdb", str(hdb), "-univ", str(n),
-                  "-start", start.replace("-", "."), "-out", str(out)]):
+    for args in _q_commands(csv, n, start, hdb, out, pq):
         p = subprocess.run([q, *args, "-q"], cwd=ROOT, capture_output=True, text=True)
         sys.stdout.write(p.stdout.split("\nmarket ")[0].rstrip() + "\n")
         if p.returncode:
@@ -88,14 +96,8 @@ def _norm(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compare(name: str, q: pd.DataFrame | None, py: pd.DataFrame,
-            atol: float, rtol: float) -> dict:
-    if q is None or py is None or len(py) == 0:
-        same = (q is None or len(q) == 0) and (py is None or len(py) == 0)
-        return {"table": name, "rows": 0, "max_abs_diff": 0.0, "mismatches": 0 if same else 1,
-                "pass": same, "worst": ""}
-    q, py = _norm(q), _norm(py)
-    keys = KEYS[name]
+def _coerce_keys(q: pd.DataFrame, py: pd.DataFrame, keys: list[str]) -> None:
+    """Give the join keys the same dtype on both sides (in place)."""
     for k in keys:
         if k == "date":
             q[k], py[k] = pd.to_datetime(q[k]), pd.to_datetime(py[k])
@@ -103,24 +105,44 @@ def compare(name: str, q: pd.DataFrame | None, py: pd.DataFrame,
             q[k], py[k] = q[k].astype(int), py[k].astype(int)
         else:
             q[k], py[k] = q[k].astype(str), py[k].astype(str)
+
+
+def _numeric_mismatches(name: str, col: str, m: pd.DataFrame, atol: float,
+                        rtol: float) -> tuple[int, pd.Series]:
+    """(count of out-of-tolerance cells, abs diff with exempt cells masked) for one float column."""
+    a = pd.to_numeric(m[f"{col}_q"], errors="coerce").astype(float)
+    b = m[f"{col}_py"].astype(float)
+    nan_diff = a.isna() != b.isna()
+    d = (a - b).abs()
+    skip = pd.Series(False, index=m.index)
+    for (tbl, sig), cols in EXEMPT.items():
+        if tbl == name and col in cols:
+            skip |= m["signal"] == sig
+    off = ((d > atol + rtol * b.abs()) & ~skip) | nan_diff
+    return int(off.sum()), d.where(~skip)
+
+
+def compare(name: str, q: pd.DataFrame | None, py: pd.DataFrame,
+            atol: float, rtol: float) -> dict:
+    """Row-by-row comparison of one output table; returns the parity-table row."""
+    if q is None or py is None or len(py) == 0:
+        same = (q is None or len(q) == 0) and (py is None or len(py) == 0)
+        return {"table": name, "rows": 0, "max_abs_diff": 0.0, "mismatches": 0 if same else 1,
+                "pass": same, "worst": ""}
+    q, py = _norm(q), _norm(py)
+    keys = KEYS[name]
+    _coerce_keys(q, py, keys)
     m = py.merge(q, on=keys, how="outer", suffixes=("_py", "_q"), indicator=True)
     bad, worst, wcol = int((m["_merge"] != "both").sum()), 0.0, ""
     for c in [c for c in py.columns if c not in keys]:
-        a, b = m[f"{c}_q"], m[f"{c}_py"]
+        b = m[f"{c}_py"]
         if pd.api.types.is_numeric_dtype(b) and not pd.api.types.is_bool_dtype(b):
-            a, b = pd.to_numeric(a, errors="coerce").astype(float), b.astype(float)
-            nan_diff = a.isna() != b.isna()
-            d = (a - b).abs()
-            skip = pd.Series(False, index=m.index)
-            for (tbl, sig), cols in EXEMPT.items():
-                if tbl == name and c in cols:
-                    skip |= m["signal"] == sig
-            off = ((d > atol + rtol * b.abs()) & ~skip) | nan_diff
-            d = d.where(~skip)
-            bad += int(off.sum())
+            n_bad, d = _numeric_mismatches(name, c, m, atol, rtol)
+            bad += n_bad
             if d.notna().any() and d.max() > worst:
                 worst, wcol = float(d.max()), c
         else:
+            a = m[f"{c}_q"]
             if pd.api.types.is_bool_dtype(b):
                 a = a.astype(str).isin(["1", "True", "true"])
             bad += int((a.astype(str) != b.astype(str)).sum())
@@ -168,7 +190,8 @@ def main() -> None:
     print(table.to_string(index=False, float_format=lambda v: f"{v:.2e}"))
     ok = bool(table["pass"].all())
     for (tbl, sig), cols in EXEMPT.items():
-        print(f"exempt (null pattern only): {tbl} {sig} {sorted(cols)} - degenerate upstream value, see README")
+        print(f"exempt (null pattern only): {tbl} {sig} {sorted(cols)} "
+              "- degenerate upstream value, see README")
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
 

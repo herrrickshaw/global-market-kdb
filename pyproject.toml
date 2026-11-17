@@ -1,0 +1,28 @@
+[project]
+name = "global-market-kdb"
+version = "0.1.0"
+description = "kdb+/q port of a cross-sectional equity signal study, with a Python parity harness"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+# python/upstream is vendored verbatim (the parity oracle); never reformat it.
+extend-exclude = ["python/upstream", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E402",    # scripts put python/ on sys.path before importing siblings
+    "B905",    # zip(strict=) needs py3.10; the repo targets 3.9
+    "E731",    # short lambda helpers in tests
+    "E741",    # `l` (low) is the OHLC convention
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# bench/ needs the 16.7M-row US warehouse and Polars, so it is left as-is (not verifiable in CI).
+"bench/*" = ["E501", "E702", "E401", "I001"]

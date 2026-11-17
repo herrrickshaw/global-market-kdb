@@ -1,6 +1,6 @@
 pandas>=2.2
 numpy>=1.26
-duckdb>=1.1
+duckdb>=2.0.0
 pytest>=8
 scipy>=1.18.1      # the vendored upstream oracle imports it
 # optional: pykx>=3   (licensed; for python/pykx_parity.py)

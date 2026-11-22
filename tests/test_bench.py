@@ -158,13 +158,13 @@ def test_lines_parses_only_json_lines(monkeypatch):
     def fake(cmd, **kw):
         seen.update(cmd=cmd, kw=kw)
         return proc(0, 'banner\n{"op": "a", "ms": 1}\n  {"indented": 1}\n{"op": "b"}\n[1]\n')
-    monkeypatch.setattr(bench_run.subprocess, "run", fake)
+    monkeypatch.setattr(bench_run, "subprocess", types.SimpleNamespace(run=fake))
     assert bench_run.lines(["q", "x"]) == [{"op": "a", "ms": 1}, {"op": "b"}]
     assert seen["cmd"] == ["q", "x"] and seen["kw"] == {"cwd": bench_run.ROOT, "capture_output": True, "text": True}
 
 
 def test_lines_exits_with_the_stderr_and_stdout_on_failure(monkeypatch):
-    monkeypatch.setattr(bench_run.subprocess, "run", lambda cmd, **kw: proc(2, "OUT", "ERR"))
+    monkeypatch.setattr(bench_run, "subprocess", types.SimpleNamespace(run=lambda cmd, **kw: proc(2, "OUT", "ERR")))
     with pytest.raises(SystemExit) as e:
         bench_run.lines(["/bin/q", "bench/bench.q"])
     assert str(e.value) == "/bin/q failed:\nERROUT"
@@ -215,7 +215,7 @@ def bench_env(tmp_path, monkeypatch, capsys):
     fake_polars(monkeypatch)
 
     def go(runner, *argv):
-        monkeypatch.setattr(bench_run.subprocess, "run", runner)
+        monkeypatch.setattr(bench_run, "subprocess", types.SimpleNamespace(run=runner))
         monkeypatch.setattr(sys, "argv", ["run.py", *argv])
         bench_run.main()
         return capsys.readouterr().out, (tmp_path / "bench" / "RESULTS.md").read_text()

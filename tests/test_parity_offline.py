@@ -165,6 +165,11 @@ def test_compare_keys_are_matched_after_type_normalisation():
     assert cmp(q.iloc[::-1].reset_index(drop=True), ic_df())["pass"] is True     # row order is irrelevant
 
 
+def test_compare_integer_keys_survive_float_formatting():
+    q = ic_df(h=[5.0, 10.0, 5.0])                                       # read_csv gives floats when a key column has NaN
+    assert cmp(q, ic_df())["pass"] is True
+
+
 def test_compare_date_keys_accept_q_dotted_dates():
     py = pd.DataFrame({"market": ["US"] * 2, "signal": ["a"] * 2, "h": [10, 10],
                        "date": pd.to_datetime(["2020-01-03", "2020-01-10"]), "ic": [0.1, 0.2]})

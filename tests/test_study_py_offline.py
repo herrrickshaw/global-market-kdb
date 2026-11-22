@@ -208,3 +208,21 @@ def test_main_options(tmp_path, monkeypatch, capsys):
     assert seen == [("d.csv", 55, "2020-03-01")]
     assert (tmp_path / "a" / "b" / "c" / "t.csv").read_text() == "a\n1\n"
     assert capsys.readouterr().out == "t: 1 rows\n"
+
+
+def test_run_deflated_sharpe_uses_only_series_longer_than_ten_periods(isolated_sr, monkeypatch):
+    rng = np.random.default_rng(5)
+    short, long_, longer = rng.normal(0.01, 0.02, 10), rng.normal(0.01, 0.02, 11), rng.normal(0.0, 0.03, 40)
+
+    def fake_study(m, root):
+        cost = [{"market": m, "signal": f"s{i}", "h": 5, "_ls_series": ser}
+                for i, ser in enumerate([short, long_, longer])]
+        return {"ic": [{"market": m, "signal": "s0", "h": 5, "p": 0.5, "nw_t": 1.0}],
+                "fm": pd.DataFrame({"signal": ["s0"]}), "wf": None, "cost": cost, "health": {}}
+    monkeypatch.setattr(sr, "study_market", fake_study)
+    res = study_py.run(interchange({"EEE": 800}, n_days=800), 70, "2019-06-07")
+    srs = [ser.mean() / ser.std(ddof=1) for ser in (long_, longer)]          # the 10-long series is excluded
+    var = float(np.var(srs, ddof=1))
+    want = [float("nan"), sv.deflated_sharpe(long_, 3, var)[1], sv.deflated_sharpe(longer, 3, var)[1]]
+    assert res["costs"]["dsr"].tolist() == pytest.approx(want, nan_ok=True)
+    assert np.isnan(res["costs"]["dsr"].iloc[0])

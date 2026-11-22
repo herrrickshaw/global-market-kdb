@@ -334,6 +334,25 @@ def test_fama_macbeth_matches_manual_per_date_ols():
     assert out.fm_t.to_numpy() == pytest.approx(want_t)
 
 
+def test_fama_macbeth_with_missing_values_matches_manual_ols_on_complete_rows():
+    a, b, fwd = fm_inputs(n_dates=8, n=70, seed=40)
+    a, fwd = a.copy(), fwd.copy()
+    a.iloc[:, :9] = np.nan                       # different signals have different numbers of names
+    fwd.iloc[:, 60:] = np.nan
+    out = sv.fama_macbeth({"a": a, "b": b}, fwd, lags=0)
+
+    def z(df):
+        r = df.rank(axis=1, pct=True)
+        return r.sub(r.mean(axis=1), axis=0).div(r.std(axis=1), axis=0)          # sample std, skipping NaN
+    za, zb, zy = z(a), z(b), z(fwd)
+    coefs = []
+    for d in fwd.index:
+        ok = za.loc[d].notna() & zb.loc[d].notna() & zy.loc[d].notna()
+        X = np.column_stack([np.ones(ok.sum()), za.loc[d][ok], zb.loc[d][ok]])
+        coefs.append(np.linalg.lstsq(X, zy.loc[d][ok].to_numpy(), rcond=None)[0][1:])
+    assert out.fm_coef.to_numpy() == pytest.approx(np.mean(coefs, axis=0), rel=1e-10)
+
+
 def test_fama_macbeth_min_names_boundary():
     a, b, fwd = fm_inputs(n_dates=6, n=80, seed=15)
     a, b = a.copy(), b.copy()

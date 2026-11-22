@@ -167,10 +167,12 @@ def test_load_market_keeps_names_in_top_n_of_any_year(tmp_path, monkeypatch):
 
 
 def test_load_market_pool_is_int_of_1_3_times_n(tmp_path, monkeypatch):
-    monkeypatch.setitem(sr.UNIVERSE_N, "US", 5)               # int(6.5) == 6 names kept per year
+    monkeypatch.setitem(sr.UNIVERSE_N, "US", 10)              # int(13.0) == 13 names kept per year
+    rows = sum((rows_for(2020, f"S{i:02d}", 10.0, 100 - i) for i in range(16)), [])
+    write_parquet(tmp_path, "US", 2020, rows)
+    assert list(sr.load_market(tmp_path, "US")["Close"].columns) == [f"S{i:02d}" for i in range(13)]
     rows = sum((rows_for(2020, f"S{i}", 10.0, 100 - i) for i in range(8)), [])
     write_parquet(tmp_path, "US", 2020, rows)
-    assert list(sr.load_market(tmp_path, "US")["Close"].columns) == [f"S{i}" for i in range(6)]
     monkeypatch.setitem(sr.UNIVERSE_N, "US", 2)               # int(2.6) == 2, not round() == 3
     assert list(sr.load_market(tmp_path, "US")["Close"].columns) == ["S0", "S1"]
 

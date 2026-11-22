@@ -83,9 +83,10 @@ def test_duckdb_benchmark_emits_the_five_operations_with_correct_checks(warehous
     assert by["window_by_sym"]["check"] == pytest.approx(am.sum(), rel=1e-9)
     assert by["rank_by_date"]["check"] == len(us)
     # ASOF: each IN bar picks up the latest fundamentals row dated (fy_end + 90d) on or before it
-    ind = frames["IN"].assign(Date=pd.to_datetime(frames["IN"].Date)).sort_values("Date")
+    ind = frames["IN"].assign(Date=pd.to_datetime(frames["IN"].Date).astype("datetime64[ns]")).sort_values("Date")
     fund = pd.DataFrame({"sym": ["INA", "INA", "INB"],
-                         "d": pd.to_datetime(["2020-06-30", "2020-09-30", "2020-03-31"]) + pd.Timedelta(days=90),
+                         "d": (pd.to_datetime(["2020-06-30", "2020-09-30", "2020-03-31"]) + pd.Timedelta(days=90))
+                         .astype("datetime64[ns]"),
                          "ni": [1.0, 2.0, 3.0]}).sort_values("d")
     m = pd.merge_asof(ind, fund, left_on="Date", right_on="d", left_by="Symbol", right_by="sym")
     assert by["asof_join_in"]["check"] == int(m["ni"].notna().sum())

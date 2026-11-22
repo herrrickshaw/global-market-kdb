@@ -5,6 +5,7 @@ into tmp_path with DuckDB, and ``~`` is redirected into tmp_path.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import sys
@@ -17,8 +18,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python" / "upstream"))
-import signal_research as sr  # noqa: E402
 import signal_validation as sv  # noqa: E402
+
+# A private copy of the module: study_py.run() (used by test_parity.py when q is installed, and by
+# test_study_py_offline.py) rewires signal_research's globals, and these tests must not see that.
+_spec = importlib.util.spec_from_file_location("signal_research_under_test",
+                                               ROOT / "python" / "upstream" / "signal_research.py")
+sr = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(sr)
 
 N_DAYS, N_NAMES = 1000, 70
 DAYS = pd.bdate_range("2018-01-01", periods=N_DAYS)          # starts on a Monday: Fridays are idx % 5 == 4

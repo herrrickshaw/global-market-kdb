@@ -406,6 +406,17 @@ def test_quantile_spread_half_rotation_turnover_and_breakeven():
     assert out["n_periods"] == 3 and math.isfinite(out["ls_sharpe"])
 
 
+def test_quantile_spread_long_short_turnover_averages_the_two_legs():
+    base = np.arange(50.0)
+    second = base.copy()
+    second[20:30] = 100 + base[20:30]            # ten mid names jump into the top bucket
+    second[40:50] = 25.0                         # the old top bucket falls into the middle; bottom bucket untouched
+    out = sv.quantile_spread_turnover(panel(np.vstack([base, second])), panel(np.tile(base, (2, 1))))
+    assert out["turnover_long"] == pytest.approx(1.0)
+    assert out["turnover_ls"] == pytest.approx(0.5)                       # (1.0 + 0.0) / 2
+    assert out["breakeven_rt_cost_ls"] == pytest.approx(out["ls_spread"] / (2 * 0.5))
+
+
 def test_quantile_spread_full_reversal_turnover_one_and_decile_cut():
     base = np.arange(50.0)
     sig = panel(np.vstack([base, base[::-1]]))
@@ -602,6 +613,11 @@ def test_ic_health_default_window_is_52_observations():
     h = sv.ic_health(ic)
     assert h["recent_ic"] == pytest.approx(0.06, abs=2e-3) and h["status"] == "HEALTHY"
     assert sv.ic_health(ic, window=26)["status"] == "DECAYING"
+
+
+def test_ic_health_full_sample_t_of_exactly_two_is_not_noise():
+    h = sv.ic_health(pd.Series([0.0, 2.0, 0.0, 2.0]), lags=0)         # mean 1, HAC t exactly 2.0
+    assert h["full_t"] == 2.0 and h["status"] == "HEALTHY"
 
 
 def test_ic_health_lags_argument_changes_the_t_stat():

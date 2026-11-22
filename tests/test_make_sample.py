@@ -71,6 +71,15 @@ def test_about_one_percent_of_rows_are_missing_and_lifecycles_trim_more(sample):
     assert per_name.min() < per_name.max() * 0.9                  # late listings / early delistings exist
 
 
+def test_missing_rows_inside_each_names_life_are_about_one_percent(sample):
+    _, df, _ = sample
+    pos = pd.Series(np.arange(len(ms.DATES)), index=ms.DATES)
+    g = df.assign(pos=df.date.map(pos)).groupby("sym")["pos"].agg(["min", "max", "size"])
+    span = (g["max"] - g["min"] + 1).sum()
+    missing = 1 - g["size"].sum() / span
+    assert 0.005 < missing < 0.02
+
+
 def test_prices_are_rounded_positive_and_consistent(sample):
     _, df, _ = sample
     for c in ("open", "high", "low", "close"):

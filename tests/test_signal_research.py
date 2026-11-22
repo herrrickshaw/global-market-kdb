@@ -194,7 +194,8 @@ def test_load_market_filters_nonpositive_close_and_ignores_zero_volume_in_rankin
 def test_load_market_strips_etf_like_symbols_for_india_only(tmp_path, monkeypatch):
     monkeypatch.setitem(sr.UNIVERSE_N, "IN", 50)
     monkeypatch.setitem(sr.UNIVERSE_N, "US", 50)
-    syms = ["TCS", "GOLDBEES", "niftyetf", "LIQUIDCASE", "GILT5Y", "SENSEXADD", "NIFTYBEES", "INFY"]
+    # each ETF-like name matches exactly one of the six patterns BEES|ETF|LIQUID|GILT|NIFTY|SENSEX
+    syms = ["TCS", "XBEES", "fooetf", "LIQUIDCASE", "GILT5Y", "SENSEXADD", "niftyjr", "INFY"]
     rows = sum((rows_for(2020, s, 10.0, 100) for s in syms), [])
     write_parquet(tmp_path, "IN", 2020, rows)
     write_parquet(tmp_path, "US", 2020, rows)
@@ -397,6 +398,12 @@ def test_build_signals_each_signal_masks_exactly_its_lookback_after_a_jump(small
             assert math.isnan(v), (sig, k)
         else:
             assert not math.isnan(v), (sig, k)
+
+
+def test_build_signals_zone_is_neutral_for_a_flat_price(built_special):
+    (S, *_), names, _ = built_special
+    flat = S["zone"][names["HALF"]].loc[DAYS[600]:DAYS[699]]            # constant 32.0 up to the jump
+    assert len(flat) > 10 and (flat == 0.0).all()                       # close == EMA50 is not "below the EMA"
 
 
 def test_build_signals_forward_window_guard_edges(built_special):

@@ -111,12 +111,13 @@ def test_query_collapses_duplicate_symbol_dates(tmp_path):
 
 
 def test_query_excludes_indian_etfs_only_for_in(tmp_path):
-    syms = ["TCS", "GOLDBEES", "niftybees", "LIQUIDETF", "GILT10", "SENSEXIETF"]
+    # each ETF-like name matches exactly one of the six patterns BEES|ETF|LIQUID|GILT|NIFTY|SENSEX
+    syms = ["TCS", "XBEES", "fooetf", "LIQUIDCASE", "GILT10", "niftyjr", "SENSEXADD"]
     rows = sum((bars(s, 10.0, 100, DATES[:2]) for s in syms), [])
     write_year(tmp_path, "IN", 2020, rows)
     write_year(tmp_path, "US", 2020, rows)
     assert ex.query(str(tmp_path), "IN", 10, "2020-01-01", "2020-12-31").sym.unique().tolist() == ["TCS"]
-    assert len(ex.query(str(tmp_path), "US", 10, "2020-01-01", "2020-12-31").sym.unique()) == 6
+    assert len(ex.query(str(tmp_path), "US", 10, "2020-01-01", "2020-12-31").sym.unique()) == 7
 
 
 @pytest.mark.parametrize("start,end", [("2020-1-1", "2020-12-31"), ("2020-01-01", "20201231"),
@@ -143,15 +144,18 @@ def test_main_writes_csv_and_reports(wh, tmp_path, capsys, monkeypatch):
 def test_main_defaults_come_from_home_and_data_local(tmp_path, monkeypatch, capsys):
     home = tmp_path / "home"
     root = home / ".cache" / "market-warehouse" / "ohlcv"
-    write_year(root, "US", 2018, bars("A", 10.0, 100, ["2018-03-01", "2018-03-02"]))
-    write_year(root, "US", 2021, bars("A", 10.0, 100, ["2021-03-01"]))             # after the default window
+    # default window 2018-01-01 .. 2020-12-31, both ends inclusive
+    write_year(root, "US", 2017, bars("A", 10.0, 100, ["2017-12-29"]))
+    write_year(root, "US", 2018, bars("A", 10.0, 100, ["2018-01-01", "2018-03-02"]))
+    write_year(root, "US", 2020, bars("A", 10.0, 100, ["2020-12-31"]))
+    write_year(root, "US", 2021, bars("A", 10.0, 100, ["2021-01-04"]))
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(ex, "ROOT", tmp_path / "repo")
     monkeypatch.setattr(sys, "argv", ["extract_sample.py"])
     ex.main()
     target = tmp_path / "repo" / "data" / "local" / "US.csv"
-    assert capsys.readouterr().out == f"wrote {target}: 2 rows, 1 names\n"
-    assert len(pd.read_csv(target)) == 2
+    assert capsys.readouterr().out == f"wrote {target}: 3 rows, 1 names\n"
+    assert pd.read_csv(target).date.tolist() == ["2018-01-01", "2018-03-02", "2020-12-31"]
 
 
 def test_main_rejects_unknown_market(monkeypatch):

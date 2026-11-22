@@ -606,3 +606,47 @@ def test_ic_health_lags_argument_changes_the_t_stat():
 def test_ic_health_all_nan_is_noise():
     h = sv.ic_health(pd.Series([np.nan] * 10))
     assert h["status"] == "NOISE" and math.isnan(h["full_t"]) and math.isnan(h["recent_ic"])
+
+
+def manual_walk_forward_fold(signals, fwd, embargo, t0, t1, alpha=0.1):
+    """Independent re-statement of one purged walk-forward fold (all three combiners)."""
+    dates = fwd.index
+
+    def z(df):
+        r = df.rank(axis=1, pct=True)
+        return r.sub(r.mean(axis=1), axis=0).div(r.std(axis=1), axis=0)
+    Z = {k: z(v) for k, v in signals.items()}
+    Y = z(fwd)
+    tr, te = dates[: t0 - embargo], dates[t0:t1]
+
+    def mean_ic(sig, ret):
+        vals = []
+        for d in sig.index:
+            a, b = sig.loc[d].to_numpy(), ret.loc[d].to_numpy()
+            ok = ~np.isnan(a) & ~np.isnan(b)
+            vals.append(stats.spearmanr(a[ok], b[ok])[0] if ok.sum() >= 30 else np.nan)
+        return float(np.nanmean(vals))
+    names = list(signals)
+    ic_tr = {k: mean_ic(Z[k].loc[tr], fwd.loc[tr]) for k in names}
+    best = max(names, key=lambda k: abs(ic_tr[k]))
+    X = np.column_stack([Z[k].loc[tr].to_numpy().ravel() for k in names])
+    y = Y.loc[tr].to_numpy().ravel()
+    ok = ~np.isnan(y) & ~np.isnan(X).any(axis=1)
+    X, y = X[ok], y[ok]
+    beta = np.linalg.solve(X.T @ X / len(y) + alpha * np.eye(len(names)), X.T @ y / len(y))
+    comb = {"best_single": Z[best].loc[te] * np.sign(ic_tr[best]),
+            "ic_weighted": sum(Z[k].loc[te] * ic_tr[k] for k in names),
+            "ridge": sum(Z[k].loc[te] * beta[j] for j, k in enumerate(names))}
+    return best, {m: mean_ic(p, fwd.loc[te]) for m, p in comb.items()}
+
+
+@pytest.mark.parametrize("embargo", [0, 3, 10])
+def test_purged_walk_forward_matches_an_independent_fold_computation(embargo):
+    fwd, good, junk = wf_panels(n_dates=130, n=60, seed=30)
+    mixed = good * 0.5 + junk
+    sigs = {"good": good, "mixed": mixed, "junk": junk}
+    out = sv.purged_walk_forward(sigs, fwd, embargo=embargo, n_folds=1)
+    best, want = manual_walk_forward_fold(sigs, fwd, embargo, 104, 130)
+    assert out.best_single_name.tolist() == [best]
+    for m, v in want.items():
+        assert out[f"oos_ic_{m}"].iloc[0] == pytest.approx(v, rel=1e-9), m

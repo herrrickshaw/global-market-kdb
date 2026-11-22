@@ -371,6 +371,34 @@ def test_build_signals_corporate_action_guard_masks_lookbacks(built_special):
     assert math.isnan(S["rev5"][ja].loc[DAYS[704]])
 
 
+LOOKBACK = {"rev5": 6, "rsi_os": 30, "mom21": 22, "mom126": 127, "mom12_1": 253, "trend": 60,
+            "golden": 200, "hi52": 253, "lowvol": 64, "illiq": 64}
+
+
+def test_build_signals_each_signal_masks_exactly_its_lookback_after_a_jump(small_universe, monkeypatch):
+    # A -60% day at row J invalidates a signal at rows J .. J+L-1.  For every signal two names are
+    # engineered so that Friday row 954 is the last masked row (J = 954-(L-1)) for one and the first
+    # free row (J = 954-L) for the other.
+    p = make_panels(seed=7)
+    C, H = p["Close"].copy(), p["High"].copy()
+    cols = list(C.columns)
+    assign = {}
+    for i, (sig, L) in enumerate(LOOKBACK.items()):
+        for k, j in (("masked", 954 - (L - 1)), ("free", 954 - L)):
+            col = cols[10 + 2 * i + (k == "free")]
+            C.iloc[j:, cols.index(col)] *= np.float32(0.4)
+            H.iloc[j:, cols.index(col)] *= np.float32(0.4)
+            assign[(sig, k)] = col
+    S, *_ = sr.build_signals({"Close": C, "High": H, "Volume": p["Volume"]}, "US")
+    friday = DAYS[954]
+    for (sig, k), col in assign.items():
+        v = S[sig][col].loc[friday]
+        if k == "masked":
+            assert math.isnan(v), (sig, k)
+        else:
+            assert not math.isnan(v), (sig, k)
+
+
 def test_build_signals_forward_window_guard_edges(built_special):
     (S, F, X, regime), names, _ = built_special
     ja = names["JUMPA"]                                      # jump on row 700
@@ -816,3 +844,30 @@ def test_main_survives_runs_where_no_market_has_a_walk_forward_fold(run_main, mo
     monkeypatch.setattr(sr, "START", "2020-09-04")           # too few formation dates for any fold
     stdout = go("--ohlcv", "/o")
     assert stdout.splitlines()[-1] == f"wrote {out}/ and SIGNAL_RESEARCH_RESULTS.md"
+
+
+def fake_results(nw_ts):
+    ic = [{"market": "US", "signal": f"s{i}", "h": 5, "mean_ic": 0.01, "nw_t": t, "p": 0.5, "neutral_ic": 0.0,
+           "neutral_t": 0.0, "bull_ic": 0.0, "bull_t": 0.0, "bear_ic": 0.0, "bear_t": 0.0}
+          for i, t in enumerate(nw_ts)]
+    rng = np.random.default_rng(1)
+    cost = [{"market": "US", "signal": "s0", "h": 5, "direction": "+", "ls_spread_pct": 1.0, "turnover_ls": 0.5,
+             "breakeven_bps_ls": 1.0, "cost_bps": 10.0, "ls_net_ann_pct": 1.0, "long_excess_pct": 0.0,
+             "turnover_long": 0.5, "long_net_ann_pct": 1.0, "ls_sharpe_ann": 1.0, "n_periods": 20,
+             "_ls_series": rng.normal(0.01, 0.02, 20)} for _ in range(3)]
+    idx = pd.date_range("2020-01-03", periods=3, freq="W-FRI")
+    return {"ic": ic, "ic_series": {"rev5": pd.Series([0.1, 0.2, 0.3], index=idx)},
+            "fm": pd.DataFrame({"market": ["US"], "signal": ["s0"], "fm_coef": [0.1], "fm_t": [1.0]}),
+            "cost": cost, "wf": pd.DataFrame({"market": ["US"], "fold": [1]}),
+            "health": {"rev5": {"status": "NOISE", "recent_ic": 0.0}}, "regime_share_bear": 0.0,
+            "n_dates": 3, "universe": 10, "current_regime": "bull"}
+
+
+def test_main_hlz_hurdle_is_inclusive_at_exactly_three(run_main, monkeypatch):
+    go, out, tmp = run_main
+    monkeypatch.setattr(sr, "study_market", lambda m, root: fake_results([3.0, -3.0, 2.999999, -2.999999, 3.5]))
+    monkeypatch.setattr(sr, "write_markdown", lambda *a, **k: None)      # the report needs the full grid
+    go("--ohlcv", "/o")
+    ic = pd.read_csv(out / "ic_table.csv")
+    assert ic["hlz_t3"].tolist() == [True, True, False, False, True]
+    assert json.loads((out / "signal_health.json").read_text())["US"]["asof"] == "2020-01-17"

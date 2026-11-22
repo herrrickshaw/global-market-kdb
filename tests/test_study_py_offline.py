@@ -226,3 +226,14 @@ def test_run_deflated_sharpe_uses_only_series_longer_than_ten_periods(isolated_s
     want = [float("nan"), sv.deflated_sharpe(long_, 3, var)[1], sv.deflated_sharpe(longer, 3, var)[1]]
     assert res["costs"]["dsr"].tolist() == pytest.approx(want, nan_ok=True)
     assert np.isnan(res["costs"]["dsr"].iloc[0])
+
+
+def test_run_harvey_liu_zhu_hurdle_is_inclusive_at_exactly_three(isolated_sr, monkeypatch):
+    def fake_study(m, root):
+        ic = [{"market": m, "signal": f"s{i}", "h": 5, "p": 0.5, "nw_t": t}
+              for i, t in enumerate([3.0, -3.0, 2.999999, -2.999999, 3.5])]
+        return {"ic": ic, "fm": pd.DataFrame({"signal": ["s0"]}), "wf": None,
+                "cost": [{"market": m, "signal": "s0", "h": 5, "_ls_series": np.zeros(3)}], "health": {}}
+    monkeypatch.setattr(sr, "study_market", fake_study)
+    res = study_py.run(interchange({"FFF": 800}, n_days=800), 70, "2019-06-07")
+    assert res["ic_table"]["hlz_t3"].tolist() == [True, True, False, False, True]

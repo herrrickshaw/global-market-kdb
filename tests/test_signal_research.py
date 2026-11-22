@@ -619,6 +619,9 @@ def md_inputs():
         for sg in ("rev5", "mom21", "trend"):
             for h in sr.HORIZONS:
                 rows.append(ic_row(m, sg, h))
+    for sg in ("rev5", "trend"):                      # JP: a rule whose in-regime IC is exactly zero
+        for h in sr.HORIZONS:
+            rows.append(ic_row("JP", sg, h, bull_ic=0.0, bull_t=0.0, bear_ic=0.03, bear_t=2.5))
     ic = pd.DataFrame(rows)
     def setrow(m, sg, h=10, **kw):
         i = ic[(ic.market == m) & (ic.signal == sg) & (ic.h == h)].index[0]
@@ -654,9 +657,12 @@ def md_inputs():
     results = {"US": {"n_dates": 126, "universe": 750, "regime_share_bear": 0.254, "current_regime": "bull",
                       "health": dict(health, rev5={"status": "FLIPPED", "recent_ic": -0.05})},
                "IN": {"n_dates": 100, "universe": 500, "regime_share_bear": 0.5, "current_regime": "bear",
+                      "health": health},
+               "JP": {"n_dates": 50, "universe": 100, "regime_share_bear": 0.1, "current_regime": "bull",
                       "health": health}}
     rules = {"zone_regime.json": {"US": {"bull_rule": "revert", "bear_rule": "mom_st"},
-                                  "IN": {"bull_rule": "trend", "bear_rule": "unknown_rule"}}}
+                                  "IN": {"bull_rule": "trend", "bear_rule": "unknown_rule"},
+                                  "JP": {"bull_rule": "trend", "bear_rule": "revert"}}}
     return ic, fm, wf, cost, results, rules
 
 
@@ -674,12 +680,13 @@ def test_markdown_header_and_universe_table(md):
     assert lines[0] == "# Signal research results — mailer signals under desk-grade validation"
     assert "| US | 126 | top 750 by 63d median $-volume | 25% | bull |" in lines
     assert "| IN | 100 | top 500 by 63d median $-volume | 50% | bear |" in lines
+    assert "| JP | 50 | top 100 by 63d median $-volume | 10% | bull |" in lines
 
 
 def test_markdown_survivor_counts_exclude_the_zone_row(md):
     text, _ = md
-    # 28 tests (24 + 4 zone rows) have a p-value; the zone row also survives/clears but is not counted
-    assert ("28 (market x signal x horizon) tests. **1 survive BH-FDR q<0.05**, "
+    # 36 tests (24 + 8 JP + 4 zone rows) have a p-value; the zone row also survives/clears but is not counted
+    assert ("36 (market x signal x horizon) tests. **1 survive BH-FDR q<0.05**, "
             "1 clear the Harvey-Liu-Zhu |t|>=3 hurdle.") in text
 
 
@@ -706,6 +713,14 @@ def test_markdown_mailer_verdicts(md):
     assert na.startswith("| IN | bear ◀ now | unknown_rule | n/a | n/a | n/a | n/a | ")
 
 
+def test_markdown_zero_ic_in_regime_is_not_wrong_way(md):
+    _, lines = md
+    jp = next(x for x in lines if x.startswith("| JP | bull"))
+    assert jp.startswith("| JP | bull ◀ now | trend | trend | 0.000 (0.0) | WEAK | HEALTHY | ")
+    jp_bear = next(x for x in lines if x.startswith("| JP | bear"))
+    assert jp_bear.startswith("| JP | bear | revert | rev5 | 0.030 (2.5) | OK | ")
+
+
 def test_markdown_strongest_signal_in_regime_picks_max_abs_t_and_direction(md):
     _, lines = md
     row = lambda pre: next(x for x in lines if x.startswith(pre))
@@ -727,8 +742,8 @@ def test_markdown_strongest_signal_none_when_nothing_reaches_t2(tmp_path, monkey
 
 def test_markdown_fama_macbeth_cells_blank_when_missing(md):
     _, lines = md
-    assert "| rev5 | 0.0123 (2.3) | 0.0000 (0.0) |" in lines
-    assert "| mom21 | -0.0020 (-0.5) |  |" in lines
+    assert "| rev5 | 0.0123 (2.3) | 0.0000 (0.0) |  |" in lines
+    assert "| mom21 | -0.0020 (-0.5) |  |  |" in lines
 
 
 def test_markdown_cost_table_omits_loss_makers_and_counts_them(md):
@@ -758,7 +773,7 @@ def test_markdown_walk_forward_rows_and_fold_means(md):
 
 def test_markdown_health_table(md):
     _, lines = md
-    assert "| rev5 | FLIPPED (-0.050) | HEALTHY (0.012) |" in lines
+    assert "| rev5 | FLIPPED (-0.050) | HEALTHY (0.012) | HEALTHY (0.012) |" in lines
 
 
 def test_markdown_without_walk_forward_omits_mean_table(tmp_path, monkeypatch):

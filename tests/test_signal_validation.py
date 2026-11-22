@@ -608,6 +608,13 @@ def test_ic_health_window_uses_last_non_nan_values():
     assert h52["recent_ic"] > h10["recent_ic"]
 
 
+def test_ic_health_recent_t_of_exactly_minus_two_counts_as_flipped():
+    ic = pd.Series([1.0] * 30 + [0.0, -2.0, 0.0, -2.0])
+    h = sv.ic_health(ic, window=4, lags=0)
+    assert h["recent_t"] == -2.0 and h["recent_ic"] == -1.0 and h["full_ic"] > 0.7
+    assert h["status"] == "FLIPPED"
+
+
 def test_ic_health_default_window_is_52_observations():
     ic = ic_series([(74, 0.06), (26, 0.12), (26, 0.0)])         # last 52 average 0.06, last 26 average 0.0
     h = sv.ic_health(ic)

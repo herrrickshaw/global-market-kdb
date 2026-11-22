@@ -57,6 +57,18 @@ def base_panels():
     return make_panels()
 
 
+# ── module configuration ─────────────────────────────────────────────────────
+def test_documented_defaults():
+    assert sr.MARKETS == ("IN", "US", "JP", "KR", "EU")
+    assert sr.MARKET_NAME == {"IN": "India", "US": "US", "JP": "Japan", "KR": "Korea", "EU": "Europe"}
+    assert sr.UNIVERSE_N == {"IN": 750, "US": 1500, "JP": 1000, "KR": 750, "EU": 600}
+    assert sr.HORIZONS == (5, 10, 21, 63)
+    assert sr.START == "2017-07-01"
+    assert sr.MAILER_RULE_SIGNAL == {"revert": "rev5", "mom_st": "mom21", "mom126": "mom126", "trend": "trend"}
+    assert sr.ETF_RE.pattern == "BEES|ETF|LIQUID|GILT|NIFTY|SENSEX"
+    assert sr.OUT == sr.HERE / "reports" / "signal_research"
+
+
 # ── tiny helpers ─────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("h,want", [(1, 1), (5, 1), (6, 2), (10, 2), (21, 5), (63, 13), (0, 1)])
 def test_lags_for(h, want):
@@ -579,6 +591,7 @@ def md_inputs():
     setrow("US", "mom21", bull_ic=0.04, bull_t=3.0, bear_ic=0.05, bear_t=2.0, q_bh=0.01, hlz_t3=True,
            nw_t=3.4)                                                                  # OK (bear, |t| == 2)
     setrow("IN", "trend", bull_ic=0.01, bull_t=1.99, bear_ic=0.0, bear_t=0.0)         # WEAK (bull)
+    setrow("IN", "trend", h=21, q_bh=0.05, p=0.05)                                    # q == 0.05 is not a survivor
     setrow("IN", "rev5", bull_ic=0.01, bull_t=2.0, bear_ic=-0.02, bear_t=-2.7)        # strongest, long low values
     zone = [ic_row("US", "zone", h, q_bh=0.001 if h == 10 else 0.5, hlz=(h == 10), nw_t=9 if h == 10 else 1.0)
             for h in sr.HORIZONS]
@@ -640,6 +653,8 @@ def test_markdown_ic_table_bolds_survivors_and_formats_cells(md):
     assert ("| rev5 | 0.020 (1.0) | 0.020 (1.0) | 0.020 (1.0) | 0.020 (1.0) | "
             "0.010 (0.5) | -0.020 (-2.5) | 0.010 (0.4) |") in lines
     assert "### US" in lines and "### IN" in lines
+    assert ("| trend | 0.020 (1.0) | 0.020 (1.0) | 0.020 (1.0) | 0.020 (1.0) | "
+            "0.010 (0.5) | 0.010 (2.0) | 0.000 (0.0) |") in lines                # q_bh == 0.05: not bold
 
 
 def test_markdown_mailer_verdicts(md):
@@ -730,7 +745,7 @@ def test_markdown_unknown_rule_file_defaults_to_na(tmp_path, monkeypatch):
 # ── main() end to end (fake warehouse, tmp outputs) ──────────────────────────
 @pytest.fixture
 def run_main(tmp_path, monkeypatch, base_panels, capsys):
-    out = tmp_path / "reports"
+    out = tmp_path / "nested" / "reports" / "signal_research"
     monkeypatch.setattr(sr, "OUT", out)
     monkeypatch.setattr(sr, "HERE", tmp_path)
     monkeypatch.setattr(sr, "START", START)

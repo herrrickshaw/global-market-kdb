@@ -237,7 +237,7 @@ class FakeRun:
             for k in parity.KEYS:
                 t = self.tables.get(k)
                 if t is None:
-                    (out / f"{k}.csv").write_text("")                  # q writes an empty file for no rows
+                    (out / f"{k}.csv").write_text("\n")                # q writes a blank file for no rows
                 else:
                     t.to_csv(out / f"{k}.csv", index=False)
         return types.SimpleNamespace(returncode=0, stdout=self.stdout, stderr=self.stderr)

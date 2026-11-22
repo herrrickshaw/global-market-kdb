@@ -85,6 +85,7 @@ def test_prices_are_rounded_positive_and_consistent(sample):
     for c in ("open", "high", "low", "close"):
         assert (df[c] > 0).all()
         assert np.allclose(df[c], df[c].round(4))
+        assert (df[c] != df[c].round(3)).mean() > 0.5              # four decimals are really there
     assert (df.high >= df.close - 1e-4).all() and (df.low <= df.close + 1e-4).all()
     assert ((df.open >= df.low - 1e-4) & (df.open <= df.high + 1e-4)).all()
     assert df.volume.dtype == np.int64 and (df.volume >= 0).all()
@@ -92,12 +93,26 @@ def test_prices_are_rounded_positive_and_consistent(sample):
 
 def test_awkward_cases_the_parity_test_relies_on_are_present(sample):
     _, df, _ = sample
-    assert (df.volume == 0).sum() > 100                            # zero-volume days
+    assert 0.005 < (df.volume == 0).mean() < 0.02                  # zero-volume days, about 1% of rows
     assert (df.high == df.close).mean() > 0.05                     # High == Close ties
     ratio = df.sort_values(["sym", "date"]).groupby("sym")["close"].pct_change()
     assert ((ratio < -0.5) | (ratio > 1.0)).sum() >= 3             # unadjusted -60% / +150% corporate-action jumps
     gaps = df.groupby("sym").date.apply(lambda s: (s.diff().dt.days > 3).sum())
     assert gaps.sum() > 100                                        # missing rows create gaps longer than a weekend
+
+
+def test_return_dynamics_match_the_documented_design(sample):
+    _, df, _ = sample
+    px = df.pivot(index="date", columns="sym", values="close")
+    r = np.log(px / px.shift(1))
+    consecutive = px.notna() & px.shift(1).notna()
+    r = r.where(consecutive & (r.abs() < 0.3))                         # drop gaps and the injected jumps
+    mkt = r.mean(axis=1)
+    assert 0.008 < mkt.std() < 0.0135                                  # market factor: 1.0% daily vol, beta ~ 1
+    idio = r.sub(mkt, axis=0)
+    lag0, lag1 = idio.stack(), idio.shift(1).stack()
+    both = pd.concat([lag0, lag1], axis=1, join="inner")
+    assert both.corr().iloc[0, 1] < -0.03                               # mild reversal: AR(1) with phi = -0.05
 
 
 def test_generation_is_deterministic(tmp_path, monkeypatch, capsys):

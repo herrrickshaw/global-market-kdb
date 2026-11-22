@@ -142,3 +142,12 @@ def test_tolerances_are_forwarded(harness):
     harness.py_tables = {"ic_table": ic}
     assert harness.go("--atol", "0.5", "--rtol", "0")[0] == 0
     assert harness.go("--atol", "0.4999", "--rtol", "0")[0] == 1
+
+
+def test_default_tolerances_are_atol_1e_10_and_rtol_1e_8(harness):
+    ic = pd.DataFrame({"market": ["US"], "signal": ["a"], "h": [5], "mean_ic": [1.0]})
+    harness.py_tables = {"ic_table": ic}
+    harness.kx.results = {"ic_table": ic.assign(mean_ic=1.0 + 5e-9)}      # inside 1e-10 + 1e-8
+    assert harness.go()[0] == 0
+    harness.kx.results = {"ic_table": ic.assign(mean_ic=1.0 + 5e-8)}      # outside
+    assert harness.go()[0] == 1

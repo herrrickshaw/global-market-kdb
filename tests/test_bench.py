@@ -27,7 +27,7 @@ import run as bench_run  # noqa: E402
 def make_warehouse(root):
     rng = np.random.default_rng(0)
     con = duckdb.connect()
-    days = pd.bdate_range("2020-12-21", periods=20)
+    days = pd.bdate_range("2020-12-21", periods=70)         # longer than the 63-row rolling window
 
     def bars(syms):
         rows = []
@@ -47,7 +47,7 @@ def make_warehouse(root):
     f = root / "fundamentals_history"
     f.mkdir()
     fund = pd.DataFrame({"ticker": ["INA", "INA", "INB"],
-                         "fy_end": pd.to_datetime(["2020-06-30", "2020-09-30", "2020-03-31"]).date,
+                         "fy_end": pd.to_datetime(["2020-06-30", "2020-09-30", "2020-09-22"]).date,
                          "net_income": [1.0, 2.0, 3.0], "shares": [10.0, 10.0, 20.0]})
     con.register("fund", fund)
     con.execute(f"COPY (SELECT * FROM fund) TO '{f / 'IN_screener_only_backup.parquet'}' (FORMAT PARQUET)")
@@ -85,7 +85,7 @@ def test_duckdb_benchmark_emits_the_five_operations_with_correct_checks(warehous
     # ASOF: each IN bar picks up the latest fundamentals row dated (fy_end + 90d) on or before it
     ind = frames["IN"].assign(Date=pd.to_datetime(frames["IN"].Date).astype("datetime64[ns]")).sort_values("Date")
     fund = pd.DataFrame({"sym": ["INA", "INA", "INB"],
-                         "d": (pd.to_datetime(["2020-06-30", "2020-09-30", "2020-03-31"]) + pd.Timedelta(days=90))
+                         "d": (pd.to_datetime(["2020-06-30", "2020-09-30", "2020-09-22"]) + pd.Timedelta(days=90))
                          .astype("datetime64[ns]"),
                          "ni": [1.0, 2.0, 3.0]}).sort_values("d")
     m = pd.merge_asof(ind, fund, left_on="Date", right_on="d", left_by="Symbol", right_by="sym")
@@ -98,11 +98,11 @@ def test_threads_setting_is_reflected_in_engine_name(warehouse, capsys):
 
 
 def test_tm_returns_the_median_and_remembers_the_minimum(monkeypatch):
-    clock = iter([0.0, 0.004, 1.0, 1.001, 2.0, 2.0025])             # durations 4, 1, 2.5 ms
+    clock = iter([0.0, 0.009, 1.0, 1.001, 2.0, 2.002])              # durations 9, 1, 2 ms
     monkeypatch.setattr(bench_py.time, "perf_counter", lambda: next(clock))
     seq = iter(["a", "b", "c"])
     ms, value = bench_py.tm(lambda: next(seq), 3)
-    assert ms == pytest.approx(2.5) and bench_py.MIN["last"] == pytest.approx(1.0) and value == "c"
+    assert ms == pytest.approx(2.0) and bench_py.MIN["last"] == pytest.approx(1.0) and value == "c"
 
 
 def test_tm_even_number_of_reps_uses_mean_of_middle_pair(monkeypatch):

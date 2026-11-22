@@ -597,6 +597,13 @@ def test_ic_health_window_uses_last_non_nan_values():
     assert h52["recent_ic"] > h10["recent_ic"]
 
 
+def test_ic_health_default_window_is_52_observations():
+    ic = ic_series([(74, 0.06), (26, 0.12), (26, 0.0)])         # last 52 average 0.06, last 26 average 0.0
+    h = sv.ic_health(ic)
+    assert h["recent_ic"] == pytest.approx(0.06, abs=2e-3) and h["status"] == "HEALTHY"
+    assert sv.ic_health(ic, window=26)["status"] == "DECAYING"
+
+
 def test_ic_health_lags_argument_changes_the_t_stat():
     ic = ic_series([(100, 0.04)])
     assert sv.ic_health(ic, lags=1)["full_t"] != sv.ic_health(ic, lags=5)["full_t"]

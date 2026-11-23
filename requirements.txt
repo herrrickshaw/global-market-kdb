@@ -1,5 +1,5 @@
 pandas>=2.2
-numpy>=1.26
+numpy>=2.5.5
 duckdb>=1.1
 pytest>=8
 scipy>=1.18.1      # the vendored upstream oracle imports it

@@ -67,7 +67,8 @@ def test_aj_matches_pandas_merge_asof(tmp_path):
     sy = lambda s: "`" + "`".join(s)
     fl = lambda s: " ".join(repr(float(v)) for v in s)
     body = (f"x:([] date:{d2q(panel.date)}; sym:{sy(panel.sym)}; close:{fl(panel.close)});"
-            f"f:`sym`date xasc ([] sym:{sy(fund.sym)}; fy:{d2q(fund.fy)}; date:{d2q(fund.date)}; ni:{fl(fund.ni)}; shares:{fl(fund.shares)});"
+            f"f:`sym`date xasc ([] sym:{sy(fund.sym)}; fy:{d2q(fund.fy)}; date:{d2q(fund.date)}; "
+            f"ni:{fl(fund.ni)}; shares:{fl(fund.shares)});"
             "r:exec ep from .ext.ep[x;f]")
     got = np.array([np.nan if v is None else v for v in q_json(tmp_path, body)], dtype=float)
     m = pd.merge_asof(panel.sort_values("date"), fund.sort_values("date"), on="date", by="sym",
